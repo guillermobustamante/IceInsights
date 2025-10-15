@@ -1,12 +1,24 @@
-import React from "react";
+import React, { lazy } from "react";
 import ReactDOM from "react-dom/client";
 import { ChakraProvider, ColorModeScript } from "@chakra-ui/react";
 import { RouterProvider, createBrowserRouter } from "react-router-dom";
 import App from "./App";
 import theme from "./theme";
-import { Dashboard } from "./pages/Dashboard";
-import { Roster } from "./pages/Roster";
-import { Summary } from "./pages/Summary";
+
+const Dashboard = lazy(async () => {
+  const module = await import("./pages/Dashboard");
+  return { default: module.Dashboard };
+});
+
+const Roster = lazy(async () => {
+  const module = await import("./pages/Roster");
+  return { default: module.Roster };
+});
+
+const Summary = lazy(async () => {
+  const module = await import("./pages/Summary");
+  return { default: module.Summary };
+});
 
 const router = createBrowserRouter([
   {
