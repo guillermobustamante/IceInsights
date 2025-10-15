@@ -1,0 +1,19 @@
+{
+  "$schema": "https://aka.ms/azure/static-web-apps-cli/schema",
+  "configurations": {
+    "ice-insights": {
+      "appLocation": ".",
+      "apiLocation": "api",
+      "outputLocation": "dist",
+      "apiLanguage": "node",
+      "apiVersion": "18",
+      "appDevserverUrl": "http://localhost:5173",
+      "appName": "iceinsights-swa",
+      "resourceGroup": "iceinsights-rg",
+      "subscriptionId": "5ce30dc6-7731-4317-8540-060abd50d943",
+      "tenantId": "911a2cd5-fcc5-4ccb-ae76-b740c096c559",
+      "appId": "/subscriptions/5ce30dc6-7731-4317-8540-060abd50d943/resourceGroups/iceinsights-rg/providers/Microsoft.Web/staticSites/iceinsights-swa"
+      
+    }
+  }
+}
