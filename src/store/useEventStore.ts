@@ -7,6 +7,7 @@ export interface EventStore {
   games: GameSummary[];
   events: GameEvent[];
   selectedGameId: string;
+  hasLoaded: boolean;
   isLoading: boolean;
   isSaving: boolean;
   error: string | null;
@@ -42,10 +43,14 @@ export const useEventStore = create<EventStore>((set, get) => ({
   games: [],
   events: [],
   selectedGameId: "",
+  hasLoaded: false,
   isLoading: false,
   isSaving: false,
   error: null,
   initialize: async () => {
+    if (get().isLoading || get().hasLoaded) {
+      return;
+    }
     set({ isLoading: true, error: null });
     try {
       const data = await loadData();
@@ -57,6 +62,7 @@ export const useEventStore = create<EventStore>((set, get) => ({
         events,
         selectedGameId:
           games[0]?.id ?? events[0]?.gameId ?? get().selectedGameId ?? "",
+        hasLoaded: true,
         isLoading: false,
       });
     } catch (error) {
@@ -67,6 +73,9 @@ export const useEventStore = create<EventStore>((set, get) => ({
   },
   clearError: () => set({ error: null }),
   persist: async () => {
+    if (!get().hasLoaded) {
+      return;
+    }
     set({ isSaving: true });
     try {
       const state = get();

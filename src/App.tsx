@@ -1,29 +1,42 @@
 import { Suspense, useEffect } from "react";
 import { Outlet } from "react-router-dom";
-import { Button, Center, Spinner, Text, VStack, useToast } from "@chakra-ui/react";
+import {
+  Button,
+  Center,
+  Spinner,
+  Text,
+  VStack,
+  useToast,
+} from "@chakra-ui/react";
 import { AppShell } from "./components/AppShell";
 import { useEventStore } from "./store/useEventStore";
+import { useAuth } from "./auth/AuthProvider";
 
 function App() {
+  const {
+    account,
+    isReady: authReady,
+    isAuthenticating,
+    error: authError,
+    login,
+    logout,
+  } = useAuth();
   const initialize = useEventStore((state) => state.initialize);
   const clearError = useEventStore((state) => state.clearError);
+  const hasLoaded = useEventStore((state) => state.hasLoaded);
   const isLoading = useEventStore((state) => state.isLoading);
+  const isSaving = useEventStore((state) => state.isSaving);
   const error = useEventStore((state) => state.error);
-  const players = useEventStore((state) => state.players);
-  const games = useEventStore((state) => state.games);
-  const events = useEventStore((state) => state.events);
   const toast = useToast();
 
   useEffect(() => {
-    void initialize();
-  }, [initialize]);
+    if (authReady && account) {
+      void initialize();
+    }
+  }, [account, authReady, initialize]);
 
   useEffect(() => {
-    if (
-      error &&
-      !isLoading &&
-      (players.length > 0 || games.length > 0 || events.length > 0)
-    ) {
+    if (error && hasLoaded) {
       toast({
         title: "Sync issue",
         description: error,
@@ -33,9 +46,9 @@ function App() {
       });
       clearError();
     }
-  }, [clearError, error, events.length, games.length, isLoading, players.length, toast]);
+  }, [clearError, error, hasLoaded, toast]);
 
-  if (isLoading && players.length === 0 && games.length === 0 && events.length === 0) {
+  if (!authReady || (isAuthenticating && !account)) {
     return (
       <Center minH="100vh">
         <Spinner color="brand.400" size="lg" />
@@ -43,12 +56,32 @@ function App() {
     );
   }
 
-  if (
-    error &&
-    players.length === 0 &&
-    games.length === 0 &&
-    events.length === 0
-  ) {
+  if (!account) {
+    return (
+      <Center minH="100vh" px={4}>
+        <VStack spacing={4}>
+          <Text fontSize="lg" textAlign="center">
+            Sign in with your organization account to access Ice Insights.
+          </Text>
+          {authError ? (
+            <Text color="red.300" textAlign="center">
+              {authError}
+            </Text>
+          ) : null}
+          <Button
+            colorScheme="brand"
+            size="lg"
+            onClick={() => void login()}
+            isLoading={isAuthenticating}
+          >
+            Sign in
+          </Button>
+        </VStack>
+      </Center>
+    );
+  }
+
+  if (!hasLoaded && error && !isLoading) {
     return (
       <Center minH="100vh">
         <VStack spacing={4}>
@@ -63,8 +96,22 @@ function App() {
     );
   }
 
+  if (!hasLoaded || isLoading) {
+    return (
+      <Center minH="100vh">
+        <Spinner color="brand.400" size="lg" />
+      </Center>
+    );
+  }
+
   return (
-    <AppShell>
+    <AppShell
+      userName={account.name}
+      onSignOut={() => {
+        void logout();
+      }}
+      isSigningOut={isAuthenticating && !!account}
+    >
       <Suspense
         fallback={
           <Center py={16}>
@@ -74,6 +121,13 @@ function App() {
       >
         <Outlet />
       </Suspense>
+      {isSaving ? (
+        <Center py={4}>
+          <Text fontSize="sm" color="gray.400">
+            Saving changes to Excel…
+          </Text>
+        </Center>
+      ) : null}
     </AppShell>
   );
 }

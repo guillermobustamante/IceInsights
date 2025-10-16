@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
 import {
   Box,
+  Button,
   Flex,
   Heading,
   IconButton,
+  Text,
   useColorMode,
   useColorModeValue,
 } from "@chakra-ui/react";
@@ -13,9 +15,17 @@ import { GameSwitcher } from "./GameSwitcher";
 
 interface AppShellProps {
   children: ReactNode;
+  userName?: string;
+  onSignOut?: () => void;
+  isSigningOut?: boolean;
 }
 
-export const AppShell = ({ children }: AppShellProps) => {
+export const AppShell = ({
+  children,
+  userName,
+  onSignOut,
+  isSigningOut = false,
+}: AppShellProps) => {
   const { colorMode, toggleColorMode } = useColorMode();
   const bg = useColorModeValue("gray.50", "gray.900");
   const headerBg = useColorModeValue("white", "gray.800");
@@ -33,7 +43,24 @@ export const AppShell = ({ children }: AppShellProps) => {
       >
         <Flex align="center" justify="space-between" gap={3}>
           <Heading size="md">Ice Insights</Heading>
-          <Flex align="center" gap={2}>
+          <Flex align="center" gap={3}>
+            {userName ? (
+              <Flex align="center" gap={2}>
+                <Text fontSize="sm" color="gray.500" maxW="160px" noOfLines={1}>
+                  {userName}
+                </Text>
+                {onSignOut ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={onSignOut}
+                    isLoading={isSigningOut}
+                  >
+                    Sign out
+                  </Button>
+                ) : null}
+              </Flex>
+            ) : null}
             <GameSwitcher />
             <IconButton
               aria-label="Toggle color mode"
