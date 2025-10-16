@@ -1,4 +1,4 @@
-const { getWorkbookData } = require("../../lib/excelRepository");
+const { getWorkbookData } = require("../lib/excelRepository");
 
 module.exports = async function run(context, req) {
   try {
@@ -23,4 +23,5 @@ module.exports = async function run(context, req) {
       },
     };
   }
-};
+}; 
+//End of file: api/get-data/index.js

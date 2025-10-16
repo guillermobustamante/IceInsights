@@ -1,4 +1,4 @@
-const { saveWorkbookData } = require("../../lib/excelRepository");
+const { saveWorkbookData } = require("../lib/excelRepository");
 
 module.exports = async function run(context, req) {
   try {
