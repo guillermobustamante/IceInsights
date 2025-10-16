@@ -11,6 +11,7 @@ import {
 import { AppShell } from "./components/AppShell";
 import { useEventStore } from "./store/useEventStore";
 import { useAuth } from "./auth/AuthProvider";
+import { msalConfigurationStatus } from "./auth/msalInstance";
 
 function App() {
   const {
@@ -68,14 +69,16 @@ function App() {
               {authError}
             </Text>
           ) : null}
-          <Button
-            colorScheme="brand"
-            size="lg"
-            onClick={() => void login()}
-            isLoading={isAuthenticating}
-          >
-            Sign in
-          </Button>
+          {msalConfigurationStatus.isConfigured ? (
+            <Button
+              colorScheme="brand"
+              size="lg"
+              onClick={() => void login()}
+              isLoading={isAuthenticating}
+            >
+              Sign in
+            </Button>
+          ) : null}
         </VStack>
       </Center>
     );

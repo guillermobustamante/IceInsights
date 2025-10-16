@@ -12,7 +12,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { msalInstance } from "./msalInstance";
+import { msalInstance, msalConfigurationStatus } from "./msalInstance";
 
 interface AuthContextValue {
   account: AccountInfo | null;
@@ -26,6 +26,9 @@ interface AuthContextValue {
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
 const setActiveAccount = (account: AccountInfo | null) => {
+  if (!msalInstance) {
+    return;
+  }
   if (account) {
     msalInstance.setActiveAccount(account);
   } else {
@@ -36,6 +39,9 @@ const setActiveAccount = (account: AccountInfo | null) => {
 const resolveAccountFromResult = (
   result: AuthenticationResult | null
 ): AccountInfo | null => {
+  if (!msalInstance) {
+    return null;
+  }
   if (result?.account) {
     return result.account;
   }
@@ -53,6 +59,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let active = true;
 
     const init = async () => {
+      if (!msalInstance) {
+        setError(
+          msalConfigurationStatus.missingKeys.length > 0
+            ? `Missing authentication configuration: ${msalConfigurationStatus.missingKeys.join(
+                ", "
+              )}`
+            : "Authentication is not configured."
+        );
+        setIsReady(true);
+        return;
+      }
       try {
         await msalInstance.initialize();
         const result = await msalInstance.handleRedirectPromise();
@@ -79,27 +96,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     void init();
 
-    const callbackId = msalInstance.addEventCallback((event) => {
-      if (event.eventType === "msal:loginSuccess" && event.payload) {
-        const payload = event.payload as AuthenticationResult;
-        setActiveAccount(payload.account);
-        setAccount(payload.account ?? null);
-      }
-      if (event.eventType === "msal:logoutSuccess") {
-        setActiveAccount(null);
-        setAccount(null);
-      }
-    });
+    const callbackId = msalInstance
+      ? msalInstance.addEventCallback((event) => {
+          if (event.eventType === "msal:loginSuccess" && event.payload) {
+            const payload = event.payload as AuthenticationResult;
+            setActiveAccount(payload.account);
+            setAccount(payload.account ?? null);
+          }
+          if (event.eventType === "msal:logoutSuccess") {
+            setActiveAccount(null);
+            setAccount(null);
+          }
+        })
+      : undefined;
 
     return () => {
       active = false;
-      if (callbackId) {
+      if (callbackId && msalInstance) {
         msalInstance.removeEventCallback(callbackId);
       }
     };
   }, []);
 
   const login = useCallback(async () => {
+    if (!msalInstance) {
+      setError(
+        "Authentication is not available. Please contact your administrator."
+      );
+      return;
+    }
     setIsAuthenticating(true);
     setError(null);
     try {
@@ -117,6 +142,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const logout = useCallback(async () => {
+    if (!msalInstance) {
+      setError(
+        "Authentication is not available. Please contact your administrator."
+      );
+      return;
+    }
     setIsAuthenticating(true);
     setError(null);
     try {
