@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { loadData, persistData } from "../api/client";
 import type { GameEvent, GameSummary, Player } from "../types";
 
 export interface EventStore {
@@ -6,6 +7,11 @@ export interface EventStore {
   games: GameSummary[];
   events: GameEvent[];
   selectedGameId: string;
+  isLoading: boolean;
+  isSaving: boolean;
+  error: string | null;
+  initialize: () => Promise<void>;
+  clearError: () => void;
   addPlayer: (player: Omit<Player, "id">) => void;
   updatePlayer: (playerId: string, patch: Partial<Player>) => void;
   deletePlayer: (playerId: string) => void;
@@ -16,79 +22,8 @@ export interface EventStore {
   updateEvent: (eventId: string, patch: Partial<GameEvent>) => void;
   deleteEvent: (eventId: string) => void;
   selectGame: (gameId: string) => void;
+  persist: () => Promise<void>;
 }
-
-const defaultPlayers: Player[] = [
-  { id: "p1", number: 9, name: "Alex Mercer", position: "C" },
-  { id: "p2", number: 27, name: "Jordan Price", position: "LW" },
-  { id: "p3", number: 12, name: "Mason Lee", position: "RW" },
-  { id: "p4", number: 4, name: "Theo Grant", position: "D" },
-  { id: "p5", number: 33, name: "Evan Blake", position: "D" },
-];
-
-const defaultGames: GameSummary[] = [
-  {
-    id: "game-001",
-    opponent: "Ice Hawks",
-    date: new Date().toISOString(),
-    status: "live",
-  },
-  {
-    id: "game-002",
-    opponent: "Polar Kings",
-    date: new Date().toISOString(),
-    status: "final",
-  },
-];
-
-const defaultEvents: GameEvent[] = [
-  {
-    id: "evt-001",
-    gameId: "game-001",
-    createdAt: new Date().toISOString(),
-    period: 1,
-    clock: "12:34",
-    type: "goalFor",
-    strength: "EVEN",
-    goalPlayerId: "p1",
-    assistIds: ["p2", "p3"],
-    plusPlayerIds: ["p1", "p2", "p3", "p4"],
-    minusPlayerIds: [],
-    notes: "Bar down on the rush",
-  },
-  {
-    id: "evt-002",
-    gameId: "game-001",
-    createdAt: new Date().toISOString(),
-    period: 1,
-    clock: "05:10",
-    type: "penalty",
-    strength: "EVEN",
-    goalPlayerId: undefined,
-    assistIds: [],
-    plusPlayerIds: [],
-    minusPlayerIds: [],
-    penaltyPlayerId: "p4",
-    penaltyInfraction: "Tripping",
-    penaltySeverity: "Minor",
-    penaltyMinutes: 2,
-    notes: "Defensive zone stick trip",
-  },
-  {
-    id: "evt-003",
-    gameId: "game-002",
-    createdAt: new Date().toISOString(),
-    period: 3,
-    clock: "03:55",
-    type: "goalAgainst",
-    strength: "PP",
-    goalPlayerId: undefined,
-    assistIds: [],
-    plusPlayerIds: [],
-    minusPlayerIds: ["p4", "p5"],
-    notes: "Screen in front of the net",
-  },
-];
 
 const randomId = () =>
   (typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -103,14 +38,59 @@ const sanitizeEvent = (event: GameEvent): GameEvent => ({
 });
 
 export const useEventStore = create<EventStore>((set, get) => ({
-  players: defaultPlayers,
-  games: defaultGames,
-  events: defaultEvents.map(sanitizeEvent),
-  selectedGameId: defaultGames[0]?.id ?? "",
+  players: [],
+  games: [],
+  events: [],
+  selectedGameId: "",
+  isLoading: false,
+  isSaving: false,
+  error: null,
+  initialize: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const data = await loadData();
+      const games = data.games ?? [];
+      const events = (data.events ?? []).map(sanitizeEvent);
+      set({
+        players: data.players ?? [],
+        games,
+        events,
+        selectedGameId:
+          games[0]?.id ?? events[0]?.gameId ?? get().selectedGameId ?? "",
+        isLoading: false,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to load data.";
+      set({ error: message, isLoading: false });
+    }
+  },
+  clearError: () => set({ error: null }),
+  persist: async () => {
+    set({ isSaving: true });
+    try {
+      const state = get();
+      await persistData({
+        players: state.players,
+        games: state.games,
+        events: state.events,
+      });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to save data.";
+      set({ error: message });
+      throw error;
+    } finally {
+      set({ isSaving: false });
+    }
+  },
   addPlayer: (player) => {
     set((state) => ({
       players: [...state.players, { ...player, id: randomId() }],
     }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   updatePlayer: (playerId, patch) => {
     set((state) => ({
@@ -123,6 +103,9 @@ export const useEventStore = create<EventStore>((set, get) => ({
           : event
       ),
     }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   deletePlayer: (playerId) => {
     set((state) => ({
@@ -138,6 +121,9 @@ export const useEventStore = create<EventStore>((set, get) => ({
         })
       ),
     }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   addGame: (game) => {
     const newGame: GameSummary = { ...game, id: randomId() };
@@ -145,6 +131,9 @@ export const useEventStore = create<EventStore>((set, get) => ({
       games: [newGame, ...state.games],
       selectedGameId: state.selectedGameId || newGame.id,
     }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   updateGame: (gameId, patch) => {
     set((state) => ({
@@ -152,6 +141,9 @@ export const useEventStore = create<EventStore>((set, get) => ({
         game.id === gameId ? { ...game, ...patch } : game
       ),
     }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   deleteGame: (gameId) => {
     set((state) => {
@@ -160,6 +152,9 @@ export const useEventStore = create<EventStore>((set, get) => ({
       const selectedGameId = state.selectedGameId === gameId ? games[0]?.id ?? "" : state.selectedGameId;
       return { games, events, selectedGameId };
     });
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   addEvent: (event) => {
     const newEvent: GameEvent = sanitizeEvent({
@@ -168,6 +163,9 @@ export const useEventStore = create<EventStore>((set, get) => ({
       createdAt: new Date().toISOString(),
     } as GameEvent);
     set((state) => ({ events: [newEvent, ...state.events] }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   updateEvent: (eventId, patch) => {
     set((state) => ({
@@ -175,11 +173,17 @@ export const useEventStore = create<EventStore>((set, get) => ({
         event.id === eventId ? sanitizeEvent({ ...event, ...patch }) : event
       ),
     }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   deleteEvent: (eventId) => {
     set((state) => ({
       events: state.events.filter((event) => event.id !== eventId),
     }));
+    void get()
+      .persist()
+      .catch(() => undefined);
   },
   selectGame: (gameId) => {
     if (!gameId) {
@@ -196,9 +200,3 @@ export const useEventStore = create<EventStore>((set, get) => ({
     );
   },
 }));
-
-
-
-
-
-
