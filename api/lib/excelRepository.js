@@ -194,10 +194,15 @@ const clearTable = async (client, tablePath) => {
   const deletePromises = [];
 
   if (Array.isArray(rows.value)) {
-    // Delete from the bottom up to keep indexes stable.
-    for (let index = rows.value.length - 1; index >= 0; index -= 1) {
+    const sortedIndexes = rows.value
+      .map((row, position) =>
+        typeof row.index === "number" ? row.index : position
+      )
+      .sort((a, b) => b - a);
+
+    for (const rowIndex of sortedIndexes) {
       deletePromises.push(
-        client.api(`${tablePath}/rows/itemAt(${index})/delete`).post()
+        client.api(`${tablePath}/rows/${rowIndex}/delete`).post()
       );
     }
   }
@@ -281,6 +286,7 @@ module.exports = {
   getWorkbookData,
   saveWorkbookData,
 };
+
 
 
 
