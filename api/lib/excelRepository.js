@@ -85,7 +85,12 @@ const fetchTableRows = async (client, tablePath) => {
 };
 
 const ensureColumns = (expected, actual, tableName) => {
-  const missing = expected.filter((col) => !actual.includes(col));
+  const normalizedActual = new Set(
+    actual.map((column) => column.toLowerCase().trim())
+  );
+  const missing = expected.filter(
+    (col) => !normalizedActual.has(col.toLowerCase().trim())
+  );
   if (missing.length > 0) {
     throw new Error(
       `Table ${tableName} is missing expected columns: ${missing.join(", ")}`
@@ -97,41 +102,55 @@ const normalizeRow = (columns, values) => {
   const object = {};
   columns.forEach((column, index) => {
     object[column] = values[index];
+    const normalized = column.toLowerCase().trim();
+    if (!(normalized in object)) {
+      object[normalized] = values[index];
+    }
   });
   return object;
 };
 
+const getRowValue = (row, key) => {
+  if (Object.prototype.hasOwnProperty.call(row, key)) {
+    return row[key];
+  }
+  const normalized = key.toLowerCase().trim();
+  if (Object.prototype.hasOwnProperty.call(row, normalized)) {
+    return row[normalized];
+  }
+  return undefined;
+};
 const toPlayer = (row) => ({
-  id: row.PlayerId,
-  number: parseNumber(row.number) ?? 0,
-  name: row.name,
-  position: row.position,
+  id: getRowValue(row, "PlayerId"),
+  number: parseNumber(getRowValue(row, "number")) ?? 0,
+  name: getRowValue(row, "name"),
+  position: getRowValue(row, "position"),
 });
 
 const toGame = (row) => ({
-  id: row.GameId,
-  opponent: row.opponent,
-  date: row.date,
-  status: row.status,
+  id: getRowValue(row, "GameId"),
+  opponent: getRowValue(row, "opponent"),
+  date: getRowValue(row, "date"),
+  status: getRowValue(row, "status"),
 });
 
 const toEvent = (row) => ({
-  id: row.EventId,
-  gameId: row.GameId,
-  createdAt: row.createdAt,
-  period: parseNumber(row.period) ?? 0,
-  clock: row.clock,
-  type: row.type,
-  strength: row.strength,
-  goalPlayerId: row.goalPlayerId || undefined,
-  assistIds: parseJsonArray(row.assistIds),
-  plusPlayerIds: parseJsonArray(row.plusPlayerIds),
-  minusPlayerIds: parseJsonArray(row.minusPlayerIds),
-  penaltyPlayerId: row.penaltyPlayerId || undefined,
-  penaltyInfraction: row.penaltyInfraction || undefined,
-  penaltySeverity: row.penaltySeverity || undefined,
-  penaltyMinutes: parseNumber(row.penaltyMinutes),
-  notes: row.notes || "",
+  id: getRowValue(row, "EventId"),
+  gameId: getRowValue(row, "GameId"),
+  createdAt: getRowValue(row, "createdAt"),
+  period: parseNumber(getRowValue(row, "period")) ?? 0,
+  clock: getRowValue(row, "clock"),
+  type: getRowValue(row, "type"),
+  strength: getRowValue(row, "strength"),
+  goalPlayerId: getRowValue(row, "goalPlayerId") || undefined,
+  assistIds: parseJsonArray(getRowValue(row, "assistIds")),
+  plusPlayerIds: parseJsonArray(getRowValue(row, "plusPlayerIds")),
+  minusPlayerIds: parseJsonArray(getRowValue(row, "minusPlayerIds")),
+  penaltyPlayerId: getRowValue(row, "penaltyPlayerId") || undefined,
+  penaltyInfraction: getRowValue(row, "penaltyInfraction") || undefined,
+  penaltySeverity: getRowValue(row, "penaltySeverity") || undefined,
+  penaltyMinutes: parseNumber(getRowValue(row, "penaltyMinutes")),
+  notes: getRowValue(row, "notes") || "",
 });
 
 const tableRowsFromPlayers = (players) =>
@@ -262,3 +281,8 @@ module.exports = {
   getWorkbookData,
   saveWorkbookData,
 };
+
+
+
+
+
