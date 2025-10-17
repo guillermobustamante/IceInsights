@@ -197,9 +197,7 @@ const clearTable = async (client, tablePath) => {
     // Delete from the bottom up to keep indexes stable.
     for (let index = rows.value.length - 1; index >= 0; index -= 1) {
       deletePromises.push(
-        client
-          .api(`${tablePath}/rows/itemAt(${index})/microsoft.graph.delete`)
-          .post({})
+        client.api(`${tablePath}/rows/itemAt(${index})/delete`).post()
       );
     }
   }
