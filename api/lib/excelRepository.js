@@ -191,23 +191,16 @@ const tableRowsFromEvents = (events) =>
 
 const clearTable = async (client, tablePath) => {
   const rows = await client.api(`${tablePath}/rows?$select=index`).get();
-  const deletePromises = [];
+  const rowCount = Array.isArray(rows.value) ? rows.value.length : 0;
 
-  if (Array.isArray(rows.value)) {
-    const sortedIndexes = rows.value
-      .map((row, position) =>
-        typeof row.index === "number" ? row.index : position
-      )
-      .sort((a, b) => b - a);
-
-    for (const rowIndex of sortedIndexes) {
-      deletePromises.push(
-        client.api(`${tablePath}/rows/${rowIndex}/delete`).post()
-      );
-    }
+  if (rowCount === 0) {
+    return;
   }
 
-  await Promise.all(deletePromises);
+  await client.api(`${tablePath}/rows/delete`).post({
+    index: 0,
+    count: rowCount,
+  });
 };
 
 const appendRows = async (client, tablePath, rows) => {
@@ -286,6 +279,7 @@ module.exports = {
   getWorkbookData,
   saveWorkbookData,
 };
+
 
 
 
