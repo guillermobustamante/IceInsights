@@ -248,45 +248,9 @@ const tableRowsFromEvents = (events) =>
   ]);
 
 const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
-  let worksheetId;
-  let worksheetName;
-
-  try {
-    const worksheet = await client
-      .api(`${tablePath}/worksheet?$select=id,name`)
-      .get();
-    worksheetId = worksheet?.id;
-    worksheetName = worksheet?.name;
-  } catch (error) {
-    worksheetId = undefined;
-  }
-
-  if (!worksheetId) {
-    const table = await client
-      .api(`${tablePath}?$expand=worksheet($select=id,name)`)
-      .get()
-      .catch(() => null);
-    worksheetId = table?.worksheet?.id;
-    worksheetName = worksheetName ?? table?.worksheet?.name;
-  }
-
-  if (!worksheetId) {
-    throw new Error(`Unable to resolve worksheet for table at path ${tablePath}`);
-  }
-
   const headerRange = await client
-    .api(`${tablePath}/headerRowRange?$select=address,columnCount,values`)
+    .api(`${tablePath}/headerRowRange?$select=columnCount,values`)
     .get();
-
-  const headerAddressParts = headerRange.address.split("!");
-  const sheetName =
-    headerAddressParts[0] && headerAddressParts[0].length > 0
-      ? headerAddressParts[0]
-      : quoteSheetName(worksheetName);
-  const [headerStartRef] = headerAddressParts[1].split(":");
-  const { column: startColumn, row: headerRow } = parseCellReference(
-    headerStartRef
-  );
 
   const columnCount =
     headerRange.columnCount ??
@@ -297,7 +261,6 @@ const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
     );
   }
 
-  const headerValues = padRowValues(headerRange.values?.[0] ?? [], columnCount);
   let sanitizedRows = rows.map((row) => padRowValues(row, columnCount));
 
   const rowsResponse = await client
@@ -308,70 +271,44 @@ const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
     ? rowsResponse.value.length
     : 0;
 
-  if (sanitizedRows.length === 0) {
-    sanitizedRows = [createBlankRow(columnCount)];
-  }
-
-  if (existingRowCount < sanitizedRows.length) {
-    const rowsToAdd = sanitizedRows.length - existingRowCount;
-    const emptyRows = Array.from({ length: rowsToAdd }, () =>
-      createBlankRow(columnCount)
-    );
+  if (sanitizedRows.length > existingRowCount) {
+    const rowsToAdd = sanitizedRows.slice(existingRowCount);
     await client
       .api(`${tablePath}/rows/add`)
       .post({
         index: existingRowCount,
-        values: emptyRows,
+        values: rowsToAdd,
       });
-    existingRowCount += rowsToAdd;
+    existingRowCount = sanitizedRows.length;
   }
 
+  let rowsForPatch;
   if (existingRowCount > sanitizedRows.length) {
-    const rowsToPad = existingRowCount - sanitizedRows.length;
-    for (let index = 0; index < rowsToPad; index += 1) {
-      sanitizedRows.push(createBlankRow(columnCount));
-    }
+    const blanksNeeded = existingRowCount - sanitizedRows.length;
+    rowsForPatch = sanitizedRows.concat(
+      Array.from({ length: blanksNeeded }, () => createBlankRow(columnCount))
+    );
+  } else {
+    rowsForPatch = sanitizedRows;
   }
 
-  const dataRowCount = sanitizedRows.length;
+  if (existingRowCount === 0 && rowsForPatch.length === 0) {
+    return;
+  }
 
-  const targetRangeAddress = buildRangeAddress(
-    sheetName,
-    startColumn,
-    headerRow,
-    columnCount,
-    dataRowCount + 1
-  );
-  const encodedTargetRange = encodeURIComponent(targetRangeAddress);
-
-  await client
-    .api(`${tablePath}/dataBodyRange?$select=address`)
-    .get()
-    .then(async (existingRange) => {
-      if (!existingRange?.address) {
-        return;
-      }
-      const encodedExisting = encodeURIComponent(existingRange.address);
-      await client
-        .api(
-          `/drives/${driveId}/items/${itemId}/workbook/worksheets/${worksheetId}/range(address='${encodedExisting}')/clear`
-        )
-        .post({ applyTo: "Contents" });
-    })
-    .catch((error) => {
-      if (error?.statusCode !== 404) {
-        throw error;
-      }
-    });
-
-  const values = [headerValues, ...sanitizedRows];
+  if (rowsForPatch.length === 0) {
+    const blanks = Array.from({ length: existingRowCount }, () =>
+      createBlankRow(columnCount)
+    );
+    await client
+      .api(`${tablePath}/dataBodyRange`)
+      .patch({ values: blanks });
+    return;
+  }
 
   await client
-    .api(
-      `/drives/${driveId}/items/${itemId}/workbook/worksheets/${worksheetId}/range(address='${encodedTargetRange}')`
-    )
-    .patch({ values });
-
+    .api(`${tablePath}/dataBodyRange`)
+    .patch({ values: rowsForPatch });
 };
 
 const getWorkbookData = async () => {
