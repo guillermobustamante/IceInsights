@@ -80,6 +80,8 @@ const padRowValues = (row, length) => {
   return padded;
 };
 
+const createBlankRow = (length) => Array.from({ length }, () => "");
+
 const buildRangeAddress = (
   sheetName,
   startColumn,
@@ -297,8 +299,38 @@ const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
 
   const headerValues = padRowValues(headerRange.values?.[0] ?? [], columnCount);
   let sanitizedRows = rows.map((row) => padRowValues(row, columnCount));
+
+  const rowsResponse = await client
+    .api(`${tablePath}/rows?$select=index`)
+    .get()
+    .catch(() => ({ value: [] }));
+  let existingRowCount = Array.isArray(rowsResponse.value)
+    ? rowsResponse.value.length
+    : 0;
+
   if (sanitizedRows.length === 0) {
-    sanitizedRows = [new Array(columnCount).fill("")];
+    sanitizedRows = [createBlankRow(columnCount)];
+  }
+
+  if (existingRowCount < sanitizedRows.length) {
+    const rowsToAdd = sanitizedRows.length - existingRowCount;
+    const emptyRows = Array.from({ length: rowsToAdd }, () =>
+      createBlankRow(columnCount)
+    );
+    await client
+      .api(`${tablePath}/rows/add`)
+      .post({
+        index: existingRowCount,
+        values: emptyRows,
+      });
+    existingRowCount += rowsToAdd;
+  }
+
+  if (existingRowCount > sanitizedRows.length) {
+    const rowsToPad = existingRowCount - sanitizedRows.length;
+    for (let index = 0; index < rowsToPad; index += 1) {
+      sanitizedRows.push(createBlankRow(columnCount));
+    }
   }
 
   const dataRowCount = sanitizedRows.length;
@@ -339,16 +371,7 @@ const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
       `/drives/${driveId}/items/${itemId}/workbook/worksheets/${worksheetId}/range(address='${encodedTargetRange}')`
     )
     .patch({ values });
-
-  await client.api(`${tablePath}/resize`).post({
-    address: buildRangeAddress(
-      sheetName,
-      startColumn,
-      headerRow,
-      columnCount,
-      dataRowCount + 1
-    ),
-  });
+
 };
 
 const getWorkbookData = async () => {
@@ -435,6 +458,9 @@ module.exports = {
   getWorkbookData,
   saveWorkbookData,
 };
+
+
+
 
 
 
