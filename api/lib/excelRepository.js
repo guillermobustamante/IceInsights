@@ -47,6 +47,51 @@ const EVENT_COLUMNS = [
   "penaltyMinutes",
   "notes",
 ];
+const columnLettersToNumber = (letters) =>
+  letters
+    .toUpperCase()
+    .split("")
+    .reduce((acc, char) => acc * 26 + (char.charCodeAt(0) - 64), 0);
+
+const columnNumberToLetters = (number) => {
+  let value = number;
+  let letters = "";
+  while (value > 0) {
+    const remainder = (value - 1) % 26;
+    letters = String.fromCharCode(65 + remainder) + letters;
+    value = Math.floor((value - 1) / 26);
+  }
+  return letters;
+};
+
+const parseCellReference = (reference) => ({
+  column: reference.replace(/\d+/g, ""),
+  row: Number(reference.replace(/\D+/g, "")),
+});
+
+const padRowValues = (row, length) => {
+  if (row.length >= length) {
+    return row;
+  }
+  const padded = row.slice();
+  while (padded.length < length) {
+    padded.push("");
+  }
+  return padded;
+};
+
+const buildRangeAddress = (
+  sheetName,
+  startColumn,
+  startRow,
+  columnCount,
+  rowCount
+) => {
+  const startColumnNumber = columnLettersToNumber(startColumn);
+  const endColumn = columnNumberToLetters(startColumnNumber + columnCount - 1);
+  const endRow = startRow + rowCount - 1;
+  return `${sheetName}!${startColumn}${startRow}:${endColumn}${endRow}`;
+};
 
 const parseNumber = (value) =>
   value === undefined || value === null || value === ""
@@ -189,27 +234,70 @@ const tableRowsFromEvents = (events) =>
     asCell(event.notes),
   ]);
 
-const clearTable = async (client, tablePath) => {
-  const rows = await client.api(`${tablePath}/rows?$select=index`).get();
-  const rowCount = Array.isArray(rows.value) ? rows.value.length : 0;
+const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
+  const table = await client
+    .api(`${tablePath}?$expand=worksheet($select=id)`)
+    .get();
 
-  if (rowCount === 0) {
-    return;
+  const worksheetId = table?.worksheet?.id;
+  if (!worksheetId) {
+    throw new Error(`Unable to resolve worksheet for table at path ${tablePath}`);
   }
 
-  for (let index = rowCount - 1; index >= 0; index -= 1) {
-    await client.api(`${tablePath}/rows/${index}`).delete();
-  }
-};
+  const headerRange = await client.api(`${tablePath}/headerRowRange`).get();
+  const headerAddressParts = headerRange.address.split("!");
+  const sheetName = headerAddressParts[0];
+  const [headerStartRef] = headerAddressParts[1].split(":");
+  const { column: startColumn, row: headerRow } = parseCellReference(
+    headerStartRef
+  );
 
-const appendRows = async (client, tablePath, rows) => {
-  if (rows.length === 0) {
-    return;
+  const columnCount =
+    headerRange.columnCount ??
+    (headerRange.values?.[0]?.length ?? (rows[0]?.length ?? 0));
+  if (!columnCount) {
+    throw new Error(`Unable to determine column count for table at path ${tablePath}`);
   }
 
-  await client.api(`${tablePath}/rows/add`).post({
-    values: rows,
-  });
+  const headerValues = padRowValues(headerRange.values?.[0] ?? [], columnCount);
+  const sanitizedRows = rows.map((row) => padRowValues(row, columnCount));
+
+  const targetRangeAddress = buildRangeAddress(
+    sheetName,
+    startColumn,
+    headerRow,
+    columnCount,
+    sanitizedRows.length + 1
+  );
+  const encodedTargetRange = encodeURIComponent(targetRangeAddress);
+
+  await client
+    .api(`${tablePath}/dataBodyRange`)
+    .get()
+    .then(async (existingRange) => {
+      if (!existingRange?.address) {
+        return;
+      }
+      const encodedExisting = encodeURIComponent(existingRange.address);
+      await client
+        .api(
+          `/drives/${driveId}/items/${itemId}/workbook/worksheets/${worksheetId}/range(address='${encodedExisting}')/clear`
+        )
+        .post({ applyTo: "Contents" });
+    })
+    .catch(() => undefined);
+
+  const values = [headerValues, ...sanitizedRows];
+
+  await client
+    .api(
+      `/drives/${driveId}/items/${itemId}/workbook/worksheets/${worksheetId}/range(address='${encodedTargetRange}')`
+    )
+    .patch({ values });
+
+  await client
+    .api(`${tablePath}/resize`)
+    .post({ address: targetRangeAddress });
 };
 
 const getWorkbookData = async () => {
@@ -262,15 +350,27 @@ const saveWorkbookData = async ({ players, games, events }) => {
   const eventsPath = buildTablePath(driveId, itemId, eventsTable);
 
   await Promise.all([
-    clearTable(client, rosterPath),
-    clearTable(client, gamesPath),
-    clearTable(client, eventsPath),
-  ]);
-
-  await Promise.all([
-    appendRows(client, rosterPath, tableRowsFromPlayers(players)),
-    appendRows(client, gamesPath, tableRowsFromGames(games)),
-    appendRows(client, eventsPath, tableRowsFromEvents(events)),
+    replaceTableRows(
+      client,
+      driveId,
+      itemId,
+      rosterPath,
+      tableRowsFromPlayers(players)
+    ),
+    replaceTableRows(
+      client,
+      driveId,
+      itemId,
+      gamesPath,
+      tableRowsFromGames(games)
+    ),
+    replaceTableRows(
+      client,
+      driveId,
+      itemId,
+      eventsPath,
+      tableRowsFromEvents(events)
+    ),
   ]);
 };
 
@@ -278,6 +378,9 @@ module.exports = {
   getWorkbookData,
   saveWorkbookData,
 };
+
+
+
 
 
 
