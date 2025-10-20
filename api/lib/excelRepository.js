@@ -93,6 +93,17 @@ const buildRangeAddress = (
   return `${sheetName}!${startColumn}${startRow}:${endColumn}${endRow}`;
 };
 
+const quoteSheetName = (name) => {
+  if (!name || name.length === 0) {
+    return "Sheet1";
+  }
+  if (!/[\s'!]/.test(name)) {
+    return name;
+  }
+  const escaped = name.replace(/'/g, "''");
+  return `'${escaped}'`;
+};
+
 const parseNumber = (value) =>
   value === undefined || value === null || value === ""
     ? undefined
@@ -235,18 +246,41 @@ const tableRowsFromEvents = (events) =>
   ]);
 
 const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
-  const table = await client
-    .api(`${tablePath}?$expand=worksheet($select=id)`)
-    .get();
+  let worksheetId;
+  let worksheetName;
 
-  const worksheetId = table?.worksheet?.id;
+  try {
+    const worksheet = await client
+      .api(`${tablePath}/worksheet?$select=id,name`)
+      .get();
+    worksheetId = worksheet?.id;
+    worksheetName = worksheet?.name;
+  } catch (error) {
+    worksheetId = undefined;
+  }
+
+  if (!worksheetId) {
+    const table = await client
+      .api(`${tablePath}?$expand=worksheet($select=id,name)`)
+      .get()
+      .catch(() => null);
+    worksheetId = table?.worksheet?.id;
+    worksheetName = worksheetName ?? table?.worksheet?.name;
+  }
+
   if (!worksheetId) {
     throw new Error(`Unable to resolve worksheet for table at path ${tablePath}`);
   }
 
-  const headerRange = await client.api(`${tablePath}/headerRowRange`).get();
+  const headerRange = await client
+    .api(`${tablePath}/headerRowRange?$select=address,columnCount,values`)
+    .get();
+
   const headerAddressParts = headerRange.address.split("!");
-  const sheetName = headerAddressParts[0];
+  const sheetName =
+    headerAddressParts[0] && headerAddressParts[0].length > 0
+      ? headerAddressParts[0]
+      : quoteSheetName(worksheetName);
   const [headerStartRef] = headerAddressParts[1].split(":");
   const { column: startColumn, row: headerRow } = parseCellReference(
     headerStartRef
@@ -256,23 +290,30 @@ const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
     headerRange.columnCount ??
     (headerRange.values?.[0]?.length ?? (rows[0]?.length ?? 0));
   if (!columnCount) {
-    throw new Error(`Unable to determine column count for table at path ${tablePath}`);
+    throw new Error(
+      `Unable to determine column count for table at path ${tablePath}`
+    );
   }
 
   const headerValues = padRowValues(headerRange.values?.[0] ?? [], columnCount);
-  const sanitizedRows = rows.map((row) => padRowValues(row, columnCount));
+  let sanitizedRows = rows.map((row) => padRowValues(row, columnCount));
+  if (sanitizedRows.length === 0) {
+    sanitizedRows = [new Array(columnCount).fill("")];
+  }
+
+  const dataRowCount = sanitizedRows.length;
 
   const targetRangeAddress = buildRangeAddress(
     sheetName,
     startColumn,
     headerRow,
     columnCount,
-    sanitizedRows.length + 1
+    dataRowCount + 1
   );
   const encodedTargetRange = encodeURIComponent(targetRangeAddress);
 
   await client
-    .api(`${tablePath}/dataBodyRange`)
+    .api(`${tablePath}/dataBodyRange?$select=address`)
     .get()
     .then(async (existingRange) => {
       if (!existingRange?.address) {
@@ -285,7 +326,11 @@ const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
         )
         .post({ applyTo: "Contents" });
     })
-    .catch(() => undefined);
+    .catch((error) => {
+      if (error?.statusCode !== 404) {
+        throw error;
+      }
+    });
 
   const values = [headerValues, ...sanitizedRows];
 
@@ -295,9 +340,15 @@ const replaceTableRows = async (client, driveId, itemId, tablePath, rows) => {
     )
     .patch({ values });
 
-  await client
-    .api(`${tablePath}/resize`)
-    .post({ address: targetRangeAddress });
+  await client.api(`${tablePath}/resize`).post({
+    address: buildRangeAddress(
+      sheetName,
+      startColumn,
+      headerRow,
+      columnCount,
+      dataRowCount + 1
+    ),
+  });
 };
 
 const getWorkbookData = async () => {
@@ -328,15 +379,21 @@ const getWorkbookData = async () => {
   ensureColumns(GAME_COLUMNS, gamesColumns, gamesTable);
   ensureColumns(EVENT_COLUMNS, eventsColumns, eventsTable);
 
-  const players = rosterRows.map((row) =>
-    toPlayer(normalizeRow(rosterColumns, row.values?.[0] ?? []))
-  );
-  const games = gamesRows.map((row) =>
-    toGame(normalizeRow(gamesColumns, row.values?.[0] ?? []))
-  );
-  const events = eventsRows.map((row) =>
-    toEvent(normalizeRow(eventsColumns, row.values?.[0] ?? []))
-  );
+  const players = rosterRows
+    .map((row) =>
+      toPlayer(normalizeRow(rosterColumns, row.values?.[0] ?? []))
+    )
+    .filter((player) => player.id && player.id.trim().length > 0);
+  const games = gamesRows
+    .map((row) =>
+      toGame(normalizeRow(gamesColumns, row.values?.[0] ?? []))
+    )
+    .filter((game) => game.id && game.id.trim().length > 0);
+  const events = eventsRows
+    .map((row) =>
+      toEvent(normalizeRow(eventsColumns, row.values?.[0] ?? []))
+    )
+    .filter((event) => event.id && event.id.trim().length > 0);
 
   return { players, games, events };
 };
