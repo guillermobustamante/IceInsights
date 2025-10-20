@@ -197,10 +197,9 @@ const clearTable = async (client, tablePath) => {
     return;
   }
 
-  await client.api(`${tablePath}/rows/delete`).post({
-    index: 0,
-    count: rowCount,
-  });
+  for (let index = rowCount - 1; index >= 0; index -= 1) {
+    await client.api(`${tablePath}/rows/${index}`).delete();
+  }
 };
 
 const appendRows = async (client, tablePath, rows) => {
@@ -279,6 +278,7 @@ module.exports = {
   getWorkbookData,
   saveWorkbookData,
 };
+
 
 
 
